@@ -36,6 +36,12 @@ order = config["class_order"]
 size = tuple(config["image_size"])
 version = config.get("model_version", "baseline-v1")
 
+EXAMPLES = [
+    ("Normal (PA)", "examples/normal_pa.jpg"),
+    ("Lobar pneumonia", "examples/pneumonia_lobar.jpg"),
+    ("Influenza pneumonia", "examples/pneumonia_influenza.jpg"),
+]
+
 with st.sidebar:
     st.header("Model info")
     st.write(f"**Version:** {version}")
@@ -43,19 +49,42 @@ with st.sidebar:
     st.write(f"**Input:** {size[0]}x{size[1]} RGB")
     st.write("EfficientNetB0 transfer learning, trained with patient-wise splits on public chest X-ray data.")
     st.divider()
-    st.caption("Research prototype. Not for clinical use. Predictions come from a model trained on public datasets and may learn scanner patterns rather than medical findings.")
+    st.subheader("Example image credits")
+    st.caption("Wikimedia Commons - Normal PA chest radiograph, X-ray of lobar pneumonia, and Chest X-ray in influenza and Haemophilus influenzae by Mikael Haggstrom (CC0).")
+    st.divider()
+    st.caption("Research prototype. Not for clinical use.")
+
+image_source = None
+source_label = None
+
+uploaded = st.file_uploader("Upload a chest X-ray (png / jpg)", type=["png", "jpg", "jpeg"])
+if uploaded is not None:
+    image_source = uploaded
+    source_label = "Uploaded X-ray"
+
+st.subheader("Or test with an example")
+cols = st.columns(len(EXAMPLES))
+for (name, path), col in zip(EXAMPLES, cols):
+    if col.button(name, use_container_width=True):
+        st.session_state["example"] = path
+        st.session_state.pop("uploaded_key", None)
+
+if image_source is None and st.session_state.get("example"):
+    image_source = st.session_state["example"]
+    source_label = "Example image (Wikimedia Commons, CC0)"
 
 left, right = st.columns([1, 1], gap="medium")
 
 with left:
-    uploaded = st.file_uploader("Upload a chest X-ray (png / jpg)", type=["png", "jpg", "jpeg"])
-    if uploaded is not None:
-        st.image(uploaded, caption="Uploaded X-ray", use_container_width=True)
+    if image_source is not None:
+        st.image(image_source, caption=source_label, use_container_width=True)
+    else:
+        st.info("Upload an X-ray or pick an example to get a prediction. Images are processed in memory only - nothing is stored.")
 
 with right:
-    if uploaded is not None:
+    if image_source is not None:
         with st.spinner("Running inference..."):
-            img = Image.open(uploaded).convert("RGB").resize(size, Image.LANCZOS)
+            img = Image.open(image_source).convert("RGB").resize(size, Image.LANCZOS)
             x = np.asarray(img, dtype=np.float32)[None]
             probs = model.predict(x, verbose=0)[0]
         result = {c: round(float(p), 4) for c, p in zip(order, probs)}
@@ -81,4 +110,4 @@ with right:
         with st.expander("Raw output (JSON)"):
             st.json(result)
     else:
-        st.info("Upload a chest X-ray to get a prediction. The image is processed in memory only - nothing is stored.")
+        st.info("Waiting for an image.")
