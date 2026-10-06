@@ -9,7 +9,7 @@ from PIL import Image
 
 REPO_ID = os.environ.get("MODEL_REPO", "danielaxv3/lungcv-xray-classifier")
 
-st.set_page_config(page_title="Chest X-Ray Classification")
+st.set_page_config(page_title="Chest X-Ray Classification", page_icon=None, layout="wide")
 
 st.title("Chest X-Ray Classification")
 st.warning("Research prototype only. This output is not a medical diagnosis.")
@@ -26,16 +26,59 @@ def get_model():
     return model, config
 
 
-model, config = get_model()
+try:
+    model, config = get_model()
+except Exception:
+    st.error(f"Model could not be loaded from {REPO_ID}. Check that the HF_TOKEN secret is set in the app settings.")
+    st.stop()
+
 order = config["class_order"]
 size = tuple(config["image_size"])
+version = config.get("model_version", "baseline-v1")
 
-uploaded = st.file_uploader("Upload a chest X-ray", type=["png", "jpg", "jpeg"])
-if uploaded is not None:
-    img = Image.open(uploaded).convert("RGB").resize(size, Image.LANCZOS)
-    x = np.asarray(img, dtype=np.float32)[None]
-    probs = model.predict(x, verbose=0)[0]
-    result = {c: round(float(p), 4) for c, p in zip(order, probs)}
-    st.subheader(f"Prediction: {max(result, key=result.get)}")
-    st.bar_chart({c: p for c, p in result.items()})
-    st.json(result)
+with st.sidebar:
+    st.header("Model info")
+    st.write(f"**Version:** {version}")
+    st.write(f"**Classes:** {', '.join(order)}")
+    st.write(f"**Input:** {size[0]}x{size[1]} RGB")
+    st.write("EfficientNetB0 transfer learning, trained with patient-wise splits on public chest X-ray data.")
+    st.divider()
+    st.caption("Research prototype. Not for clinical use. Predictions come from a model trained on public datasets and may learn scanner patterns rather than medical findings.")
+
+left, right = st.columns([1, 1], gap="medium")
+
+with left:
+    uploaded = st.file_uploader("Upload a chest X-ray (png / jpg)", type=["png", "jpg", "jpeg"])
+    if uploaded is not None:
+        st.image(uploaded, caption="Uploaded X-ray", use_container_width=True)
+
+with right:
+    if uploaded is not None:
+        with st.spinner("Running inference..."):
+            img = Image.open(uploaded).convert("RGB").resize(size, Image.LANCZOS)
+            x = np.asarray(img, dtype=np.float32)[None]
+            probs = model.predict(x, verbose=0)[0]
+        result = {c: round(float(p), 4) for c, p in zip(order, probs)}
+        best = max(result, key=result.get)
+        conf = result[best]
+
+        st.subheader(f"Prediction: {best}")
+        st.metric("Confidence", f"{conf * 100:.1f}%")
+
+        st.subheader("Class probabilities")
+        for c in order:
+            p = result[c]
+            color = "#16a34a" if c == best else "#94a3b8"
+            st.markdown(
+                f"<div style='display:flex;align-items:center;gap:8px'>"
+                f"<div style='width:110px;font-weight:600'>{c}</div>"
+                f"<div style='flex:1;background:#e2e8f0;border-radius:4px;height:20px'>"
+                f"<div style='width:{p * 100:.1f}%;height:100%;background:{color};border-radius:4px'></div>"
+                f"</div><div style='width:60px;text-align:right'>{p * 100:.1f}%</div></div>",
+                unsafe_allow_html=True,
+            )
+
+        with st.expander("Raw output (JSON)"):
+            st.json(result)
+    else:
+        st.info("Upload a chest X-ray to get a prediction. The image is processed in memory only - nothing is stored.")
