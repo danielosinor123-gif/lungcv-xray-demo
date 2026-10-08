@@ -75,7 +75,10 @@ btn.onclick = async () => {
   const ctx = document.createElement('canvas');
   ctx.width = SIZE; ctx.height = SIZE;
   const c2 = ctx.getContext('2d');
-  c2.drawImage(preview, 0, 0, SIZE, SIZE);
+  const _cw = preview.naturalWidth || preview.width;
+  const _ch = preview.naturalHeight || preview.height;
+  const _m = Math.round(Math.min(_cw, _ch) * 0.04);
+  c2.drawImage(preview, _m, _m, _cw - 2 * _m, _ch - 2 * _m, 0, 0, SIZE, SIZE);
   const data = c2.getImageData(0, 0, SIZE, SIZE).data;
   const floats = new Float32Array(SIZE * SIZE * 3);
   for (let i = 0, j = 0; i < data.length; i += 4, j += 3) {

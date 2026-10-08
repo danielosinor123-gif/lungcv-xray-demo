@@ -84,7 +84,10 @@ with left:
 with right:
     if image_source is not None:
         with st.spinner("Running inference..."):
-            img = Image.open(image_source).convert("RGB").resize(size, Image.LANCZOS)
+            img = Image.open(image_source).convert("RGB")
+            _w, _h = img.size
+            _m = int(min(_w, _h) * 0.04)
+            img = img.crop((_m, _m, _w - _m, _h - _m)).resize(size, Image.LANCZOS)
             x = np.asarray(img, dtype=np.float32)[None]
             probs = model.predict(x, verbose=0)[0]
         result = {c: round(float(p), 4) for c, p in zip(order, probs)}
