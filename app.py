@@ -40,6 +40,8 @@ EXAMPLES = [
     ("Normal (PA)", "examples/normal_pa.jpg"),
     ("Lobar pneumonia", "examples/pneumonia_lobar.jpg"),
     ("Influenza pneumonia", "examples/pneumonia_influenza.jpg"),
+    ("Tuberculosis", "examples/tb_1.jpg"),
+    ("TB (Ghon complex)", "examples/tb_ghon.jpg"),
 ]
 
 with st.sidebar:
@@ -50,7 +52,7 @@ with st.sidebar:
     st.write("EfficientNetB0 transfer learning, trained with patient-wise splits on public chest X-ray data.")
     st.divider()
     st.subheader("Example image credits")
-    st.caption("Wikimedia Commons - Normal PA chest radiograph, X-ray of lobar pneumonia, and Chest X-ray in influenza and Haemophilus influenzae by Mikael Haggstrom (CC0).")
+    st.caption("Wikimedia Commons - Normal PA chest radiograph, X-ray of lobar pneumonia, and Chest X-ray in influenza and Haemophilus influenzae by Mikael Haggstrom (CC0). Tuberculosis-x-ray-1 (public domain) and Ghon complex (CC BY 4.0, Mikael Haggstrom).")
     st.divider()
     st.caption("Research prototype. Not for clinical use.")
 
