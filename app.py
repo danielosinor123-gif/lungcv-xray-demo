@@ -86,9 +86,16 @@ with right:
     if image_source is not None:
         with st.spinner("Running inference..."):
             img = Image.open(image_source).convert("RGB")
+            _crop = config.get("crop_borders", 0)
+            if isinstance(_crop, str):
+                import re as _re
+                _mm = _re.search(r"([\d.]+)\s*%", _crop)
+                _crop = (float(_mm.group(1)) / 100.0) if _mm else 0.0
             _w, _h = img.size
-            _m = int(min(_w, _h) * 0.04)
-            img = img.crop((_m, _m, _w - _m, _h - _m)).resize(size, Image.LANCZOS)
+            _m = int(min(_w, _h) * float(_crop or 0))
+            if _m > 0:
+                img = img.crop((_m, _m, _w - _m, _h - _m))
+            img = img.resize(size, Image.LANCZOS)
             x = np.asarray(img, dtype=np.float32)[None]
             probs = model.predict(x, verbose=0)[0]
         result = {c: round(float(p), 4) for c, p in zip(order, probs)}
