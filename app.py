@@ -35,6 +35,7 @@ except Exception:
 order = config["class_order"]
 size = tuple(config["image_size"])
 version = config.get("model_version", "baseline-v1")
+uncertainty_threshold = float(config.get("uncertainty_threshold", 0.60))
 
 EXAMPLES = [
     ("NORMAL sample", "examples/normal_indist.jpg"),
@@ -105,6 +106,13 @@ with right:
         best = max(result, key=result.get)
         conf = result[best]
 
+        ranked = sorted(result.items(), key=lambda t: -t[1])
+        runner_up = ranked[1] if len(ranked) > 1 else (None, 0.0)
+        spread = conf - runner_up[1]
+        uncertain = conf < uncertainty_threshold
+
+        if uncertain:
+            st.warning("Low confidence - the model cannot classify this film reliably. Radiologist review is recommended. The full distribution is shown below for transparency.")
         st.subheader(f"Prediction: {best}")
         st.metric("Confidence", f"{conf * 100:.1f}%")
 
@@ -123,5 +131,35 @@ with right:
 
         with st.expander("Raw output (JSON)"):
             st.json(result)
+
+        st.subheader("Findings summary (auto-generated)")
+        summary = [
+            f"The model assigns **{conf * 100:.1f}% confidence** to the class **{best}**.",
+            f"The next most likely class is {runner_up[0]} at {runner_up[1] * 100:.1f}% (separation: {spread * 100:.1f} points).",
+        ]
+        if uncertain:
+            summary.append("Confidence is below the reporting threshold - these findings are **inconclusive**, and a radiologist review is recommended.")
+        else:
+            summary.append("Confidence is above the reporting threshold - the model considers this classification reliable for research purposes.")
+        summary.append("These statements describe the model statistical outputs only. They are not clinical observations and must not be used for diagnosis.")
+        for s in summary:
+            st.markdown("- " + s)
     else:
         st.info("Waiting for an image.")
+
+
+with st.expander("What is next - the roadmap to the next level"):
+    st.markdown("""**1. Fine-tune the encoder** - the frozen EfficientNetB0 base unfrozen on its top blocks (low learning rate) - expected +1-3 points on the weak classes.
+
+**2. External validation with hospital data** - the hospital proposal is ready; partner samples become the locked external test cohort - the industry-standard evidence of generalization.
+
+**3. Language layer v2 - a grounded LLM narrator** - the model calibrated outputs and lung mask fed to a language model with strict grounding (it describes only what the model computed - no invented findings).
+
+**4. Data ladder** - MIMIC-CXR (377k images, report-mined labels) and CheXpert (224k) - the corpora the field trains on; the pipeline absorbs them like the current seven datasets.
+
+**5. DICOM ingestion + triage framing** - hospital-workflow integration: results flagged for radiologist review, never autonomous diagnosis.
+
+**6. Drift monitoring** - per-scanner performance tracking over time - the layer where deployed models silently fail without it.
+
+Research prototype only - not a medical diagnosis.
+""")
