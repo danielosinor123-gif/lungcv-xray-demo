@@ -97,7 +97,10 @@ with right:
                 img = img.crop((_m, _m, _w - _m, _h - _m))
             img = img.resize(size, Image.LANCZOS)
             x = np.asarray(img, dtype=np.float32)[None]
-            probs = model.predict(x, verbose=0)[0]
+            raw = model.predict(x, verbose=0)
+        probs = raw[0] if isinstance(raw, list) else raw
+        if getattr(probs, 'ndim', 1) == 2:
+            probs = probs[0]
         result = {c: round(float(p), 4) for c, p in zip(order, probs)}
         best = max(result, key=result.get)
         conf = result[best]
