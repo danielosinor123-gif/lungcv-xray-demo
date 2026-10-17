@@ -102,6 +102,9 @@ with right:
         probs = raw[0] if isinstance(raw, list) else raw
         if getattr(probs, 'ndim', 1) == 2:
             probs = probs[0]
+        seg_mask = None
+        if isinstance(raw, list) and len(raw) > 1:
+            seg_mask = np.asarray(raw[1][0, :, :, 0], dtype=np.float32)
         result = {c: round(float(p), 4) for c, p in zip(order, probs)}
         best = max(result, key=result.get)
         conf = result[best]
@@ -128,6 +131,16 @@ with right:
                 f"</div><div style='width:60px;text-align:right'>{p * 100:.1f}%</div></div>",
                 unsafe_allow_html=True,
             )
+
+        st.subheader("Lung region (model attention)")
+        if seg_mask is not None:
+            base_img = np.asarray(Image.open(image_source).convert("RGB").resize((224, 224), Image.LANCZOS), dtype=np.float32)
+            m = seg_mask > 0.5
+            overlay = base_img.copy()
+            overlay[m] = overlay[m] * 0.45 + np.array([0.0, 200.0, 0.0]) * 0.55
+            st.image(overlay.astype(np.uint8), caption="Green: lung regions the model traced (model attention, not clinical segmentation)", use_container_width=True)
+        else:
+            st.caption("This model has no segmentation head - lung-region overlay unavailable.")
 
         with st.expander("Raw output (JSON)"):
             st.json(result)
