@@ -7,7 +7,7 @@ import tensorflow as tf
 from huggingface_hub import hf_hub_download
 from PIL import Image
 
-REPO_ID = os.environ.get("MODEL_REPO", "danielaxv3/lungcv-xray-multilabel-v3")
+REPO_ID = os.environ.get("MODEL_REPO", "danielaxv3/lungcv-xray-multilabel-v32")
 
 st.set_page_config(page_title="Chest X-Ray Finding Scores", page_icon=None, layout="wide")
 
@@ -121,7 +121,7 @@ with st.sidebar:
     st.write(f"**Version:** {version}")
     st.write(f"**Findings:** {', '.join(order)}")
     st.write(f"**Input:** {size[0]}x{size[1]} grayscale + CLAHE" if clahe_applied else f"**Input:** {size[0]}x{size[1]} RGB")
-    st.write("DenseNet121 transfer learning with an independent sigmoid score per finding (multi-label). Films below the reporting threshold are flagged uncertain; an OOD detector flags unfamiliar films.")
+    st.write("EfficientNetB0 multitask transfer learning: an independent sigmoid score per finding (multi-label) plus an auxiliary lung-segmentation head. Films below the reporting threshold are flagged uncertain; an OOD detector flags unfamiliar films.")
     if centroids is not None and ood_threshold:
         st.write(f"**OOD detector:** on (threshold {ood_threshold:.1f})")
     st.divider()
@@ -248,7 +248,7 @@ with right:
 
 
 with st.expander("What is next - the roadmap to the next level"):
-    st.markdown("""**1. Backbone fine-tuning** - tested: a RadImageNet medical-pretrained backbone with two-stage fine-tuning was evaluated against the ImageNet baseline and lost (79.0% vs 82.9%) - the comparison is documented in the model card. The ImageNet DenseNet121 remains production.
+    st.markdown("""**1. Combining the best recipes** - done: v3.2 merges the segmentation-aided multitask training (v2's winning recipe) with the independent sigmoid scores + OOD rejection (v3's design) - 89.8% familiar accuracy (v2: 88.4%, v3: 79.8%) while keeping the correct-rejection behavior on unfamiliar films (60% vs v2's 20%).
 
 **2. External validation with hospital data** - the hospital proposal is ready; partner samples become the locked external test cohort - the industry-standard evidence of generalization.
 

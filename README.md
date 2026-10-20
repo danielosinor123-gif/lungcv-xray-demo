@@ -1,4 +1,4 @@
-﻿# LungCV — Chest X-Ray Finding Scores (multi-label v3)
+﻿# LungCV — Chest X-Ray Finding Scores (multitask + multi-label v3.2)
 
 ![Python](https://img.shields.io/badge/python-3.13-blue)
 ![TensorFlow](https://img.shields.io/badge/TensorFlow-2.21-orange)
@@ -15,23 +15,20 @@ where no finding crosses the reporting threshold are flagged **uncertain**, and 
 
 ---
 
-## Performance (v3, validation)
+## Performance (v3.2, head-to-head on 864 shared held-out tiles)
 
-**Argmax accuracy 82.9% · macro-F1 0.829** (1,800 held-out images)
-per-finding sigmoid scores at a 0.5 threshold:
+**Argmax accuracy 89.8% · macro-F1 0.903** — beats v2 (88.4% / 0.892) on identical
+inputs, while adding uncertainty + OOD behavior v2 lacks:
 
 | Finding | Precision | Recall | F1 |
 |---|---:|---:|---:|
-| COVID | 0.820 | 0.707 | 0.759 |
-| NORMAL | 0.832 | 0.690 | 0.754 |
-| PNEUMONIA | 0.874 | 0.696 | 0.775 |
-| TB | 0.961 | 0.886 | **0.922** |
+| COVID | 0.946 | 0.976 | 0.961 |
+| NORMAL | 0.973 | 0.716 | 0.825 |
+| PNEUMONIA | 0.785 | 0.996 | 0.878 |
+| TB | 0.990 | 0.912 | 0.950 |
 
-OOD detector: distance threshold 16.3 (95th percentile of training distances);
-5.3% of familiar validation films flagged — correctly calibrated.
-
-Note: sigmoid scoring at a fixed threshold is a harder bar than softmax argmax —
-unsure films score below 0.5 by design (that is the uncertainty behavior).
+Unfamiliar films (5 CC0, different scanners): **3/5** via OOD rejection (v2: 1/5).
+Uncertain-flag rate on familiar data: 6.4% (calibrated). Own-validation: 89.4% / 0.894.
 
 ---
 
@@ -41,8 +38,9 @@ unsure films score below 0.5 by design (that is the uncertainty behavior).
 |---|---|---|---|---|
 | v1 | EfficientNetB0 (ImageNet) | 4-class softmax | 91.2% acc, macro-F1 0.903 | superseded |
 | v2 multitask | EfficientNetB0 + U-Net head | class + lung mask | 89.9% acc, TB F1 0.971 | superseded |
-| **v3** | **DenseNet121 (ImageNet) + CLAHE** | **4 independent sigmoids + OOD** | **82.9% acc, macro-F1 0.829** | **production** |
+| v3 | DenseNet121 (ImageNet) + CLAHE, no seg head | 4 independent sigmoids + OOD | 79.8% acc (shared cohort) | superseded |
 | v3.1 | DenseNet121 (RadImageNet), fine-tuned | 4 independent sigmoids + OOD | 79.0% acc — lost to v3 | experiment |
+| **v3.2** | **multitask (seg head) + 4 independent sigmoids + OOD** | **89.8% acc, macro-F1 0.903** | **production** |
 
 The RadImageNet experiment (medical-pretrained backbone, two-stage fine-tuning,
 empirical preprocessing probe) is preserved at
@@ -81,20 +79,20 @@ per-class balancing, patient-wise 70/15/15 splits (leakage-asserted).
 
 ---
 
-## Model (v3)
+## Model (v3.2)
 
 | Component | Detail |
 |---|---|
-| Architecture | DenseNet121 (ImageNet transfer, frozen) + GAP + Dropout + Dense(4, sigmoid) |
-| Parameters | ~7M (29.7 MB `.keras` artifact) |
+| Architecture | EfficientNetB0 (ImageNet) + GAP + Dropout + Dense(4, sigmoid) + U-Net-style lung-segmentation decoder (aux loss 0.3) |
+| Parameters | ~17M (77 MB `.keras` artifact) |
 | Training data | 12,000 class-balanced tiles (3,000/finding, patient-wise split, seed 42) |
-| Harmonization | CLAHE (clipLimit 2.0, 8×8 tiles) — strips scanner intensity fingerprints |
-| Preprocessing | grayscale → CLAHE → 224×224 → 3-channel → DenseNet `preprocess_input` |
-| Loss | binary cross-entropy per finding (multi-label) |
-| OOD | Euclidean distance to class centroids in GAP feature space |
+| Fine-tuning | two-stage: frozen head, then top 40 encoder layers (BatchNorm frozen) at 1e-5 |
+| Preprocessing | grayscale → 224×224 → 3-channel, raw [0,255] (EfficientNetB0 built-in rescaling) |
+| Loss | binary cross-entropy per finding (multi-label) + segmentation BCE |
+| OOD | Euclidean distance to class centroids in GAP feature space, threshold from config |
 
 The model + config + OOD centroids load from
-[the Hugging Face model repo](https://huggingface.co/danielaxv3/lungcv-xray-multilabel-v3).
+[the Hugging Face model repo](https://huggingface.co/danielaxv3/lungcv-xray-multilabel-v32).
 
 ---
 
