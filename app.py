@@ -171,6 +171,15 @@ with right:
             img = Image.open(image_source)
             x = preprocess(img, config)
             raw = model.predict(x, verbose=0)
+            raw_flip = model.predict(x[:, :, ::-1, :], verbose=0)
+            # flip test-time augmentation: average probabilities; align the mask back
+            if isinstance(raw, list):
+                raw = [
+                    (a + b[:, :, ::-1, :]) / 2.0 if a.ndim == 4 else (a + b) / 2.0
+                    for a, b in zip(raw, raw_flip)
+                ]
+            else:
+                raw = (raw + raw_flip) / 2.0
             dist, nearest = ood_distance(x)
         probs = raw[0] if isinstance(raw, list) else raw
         if getattr(probs, "ndim", 1) == 2:
