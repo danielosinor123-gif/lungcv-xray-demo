@@ -50,6 +50,12 @@ order = config["class_order"]
 size = tuple(config["image_size"])
 version = config.get("model_version", "baseline-v1")
 uncertainty_threshold = float(config.get("uncertainty_threshold", 0.5))
+finding_thresholds = {k: float(v) for k, v in (config.get("finding_thresholds") or {}).items()}
+
+
+def thr_for(c):
+    """Per-finding calibrated reporting threshold (falls back to the flat one)."""
+    return finding_thresholds.get(c, uncertainty_threshold)
 clahe_applied = bool(config.get("clahe_applied", False))
 _ood_thr = config.get("ood_distance_threshold")
 ood_threshold = float(_ood_thr) if _ood_thr is not None else None
@@ -122,6 +128,8 @@ with st.sidebar:
     st.write(f"**Findings:** {', '.join(order)}")
     st.write(f"**Input:** {size[0]}x{size[1]} grayscale + CLAHE" if clahe_applied else f"**Input:** {size[0]}x{size[1]} RGB")
     st.write("EfficientNetB0 multitask transfer learning: an independent sigmoid score per finding (multi-label) plus an auxiliary lung-segmentation head. Films below the reporting threshold are flagged uncertain; an OOD detector flags unfamiliar films.")
+    if finding_thresholds:
+        st.write("**Reporting thresholds:** calibrated per finding")
     if centroids is not None and ood_threshold:
         st.write(f"**OOD detector:** on (threshold {ood_threshold:.1f})")
     st.divider()
@@ -173,8 +181,8 @@ with right:
         result = {c: round(float(p), 4) for c, p in zip(order, probs)}
         best = max(result, key=result.get)
         conf = result[best]
-        present = sorted(((c, result[c]) for c in order if result[c] >= uncertainty_threshold), key=lambda t: -t[1])
-        uncertain = conf < uncertainty_threshold
+        present = sorted(((c, result[c]) for c in order if result[c] >= thr_for(c)), key=lambda t: -t[1])
+        uncertain = all(result[c] < thr_for(c) for c in order)
         ood_flag = dist is not None and dist > ood_threshold
 
         if ood_flag:
@@ -187,7 +195,7 @@ with right:
             st.caption(f"In-distribution check passed: nearest-class distance {dist:.1f} (threshold {ood_threshold:.1f}).")
 
         if uncertain and not ood_flag:
-            st.warning("Low confidence - no finding crosses the reporting threshold, so the model cannot classify this film reliably. Radiologist review is recommended. The full scores are shown below for transparency.")
+            st.warning("Low confidence - no finding reaches its calibrated reporting threshold, so the model cannot classify this film reliably. Radiologist review is recommended. The full scores are shown below for transparency.")
 
         st.subheader(f"Highest finding: {best}")
         st.metric("Score", f"{conf * 100:.1f}%")
@@ -204,7 +212,7 @@ with right:
                 f"</div><div style='width:60px;text-align:right'>{p * 100:.1f}%</div></div>",
                 unsafe_allow_html=True,
             )
-        st.caption("Scores are independent sigmoid outputs, not a probability distribution - several findings can be high at once.")
+        st.caption("Scores are independent sigmoid outputs, not a probability distribution - several findings can be high at once. Reporting thresholds are calibrated per finding.")
 
         st.subheader("Lung region (model attention)")
         if seg_mask is not None:
@@ -218,6 +226,8 @@ with right:
 
         with st.expander("Raw output (JSON)"):
             payload = dict(result)
+            if finding_thresholds:
+                payload["finding_thresholds"] = finding_thresholds
             if dist is not None:
                 payload["ood_nearest_class"] = nearest
                 payload["ood_distance"] = round(dist, 2)
@@ -233,11 +243,11 @@ with right:
                 f"The scores above are reported for transparency but should **not** be interpreted as findings for this film."
             )
         elif uncertain:
-            summary.append(f"No finding crosses the {uncertainty_threshold * 100:.0f}% reporting threshold (highest: {best} at {conf * 100:.1f}%). These results are **inconclusive**, and a radiologist review is recommended.")
+            summary.append(f"No finding reaches its calibrated reporting threshold (highest: {best} at {conf * 100:.1f}%). These results are **inconclusive**, and a radiologist review is recommended.")
         else:
             listing = ", ".join(f"**{c}** ({p * 100:.1f}%)" for c, p in present)
-            summary.append(f"The model reports {len(present)} finding(s) above the {uncertainty_threshold * 100:.0f}% reporting threshold: {listing}.")
-            below = sorted(((c, result[c]) for c in order if result[c] < uncertainty_threshold), key=lambda t: -t[1])
+            summary.append(f"The model reports {len(present)} finding(s) above their calibrated reporting thresholds: {listing}.")
+            below = sorted(((c, result[c]) for c in order if result[c] < thr_for(c)), key=lambda t: -t[1])
             if below:
                 summary.append("Findings below the threshold (not reported): " + ", ".join(f"{c} ({p * 100:.1f}%)" for c, p in below) + ".")
         summary.append("These statements describe the model's statistical outputs only. They are not clinical observations and must not be used for diagnosis.")
