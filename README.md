@@ -1,4 +1,4 @@
-﻿# LungCV — Chest X-Ray Finding Scores (multitask + multi-label v3.2)
+# LungCV — Chest X-Ray Finding Scores (multitask + multi-label v3.2)
 
 ![Python](https://img.shields.io/badge/python-3.13-blue)
 ![TensorFlow](https://img.shields.io/badge/TensorFlow-2.21-orange)
@@ -41,6 +41,16 @@ Uncertain-flag rate on familiar data: 6.4% (calibrated). Own-validation: 89.4% /
 | v3 | DenseNet121 (ImageNet) + CLAHE, no seg head | 4 independent sigmoids + OOD | 79.8% acc (shared cohort) | superseded |
 | v3.1 | DenseNet121 (RadImageNet), fine-tuned | 4 independent sigmoids + OOD | 79.0% acc — lost to v3 | experiment |
 | **v3.2** | **multitask (seg head) + 4 independent sigmoids + OOD** | **89.8% acc, macro-F1 0.903** | **production** |
+| v3.4/v3.5 | 16 findings, weighted BCE | macro-F1 0.247 / 0.378 | experiment |
+| v4.0 | 16 findings + CheXpert multi-hospital | macro-F1 0.411; 4/5 films | experiment |
+| v4.0-expert | head taught on radiologist labels | 73.4% expert benchmark | experiment (biscuit) |
+| v4.1 | weight cap 6 | 84.8% / 5/5 films | experiment |
+
+**The honest story:** on the internal cohort the models reach 85-90%; on the 500-study
+expert-annotated CheXpert benchmark the binary boundary tops out near 40% for base models
+(73% for the expert-tuned head) - the internal numbers measure agreement with an NLP
+labeler, not with radiologists. Production stays v3.2 + TTA; the research direction is
+calibrated thresholds on expert labels.
 
 The RadImageNet experiment (medical-pretrained backbone, two-stage fine-tuning,
 empirical preprocessing probe) is preserved at
