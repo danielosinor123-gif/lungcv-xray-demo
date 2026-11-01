@@ -18,11 +18,16 @@ st.warning("Research prototype only. This output is not a medical diagnosis.")
 @st.cache_resource
 def get_model():
     token = st.secrets.get("HF_TOKEN")
-    model_path = hf_hub_download(repo_id=REPO_ID, filename="best_model.keras", token=token)
     config_path = hf_hub_download(repo_id=REPO_ID, filename="preprocessing_config.json", token=token)
-    model = tf.keras.models.load_model(model_path)
     with open(config_path) as f:
         config = json.load(f)
+    # the model filename is declared in the config (repos ship best_v32.keras etc.)
+    model_file = config.get("hf_model_file", "best_model.keras")
+    try:
+        model_path = hf_hub_download(repo_id=REPO_ID, filename=model_file, token=token)
+    except Exception:
+        model_path = hf_hub_download(repo_id=REPO_ID, filename="best_model.keras", token=token)
+    model = tf.keras.models.load_model(model_path)
     # OOD detector artifacts (present on multilabel-v3 and later)
     centroids = None
     try:
@@ -267,7 +272,7 @@ with right:
 
 
 with st.expander("What is next - the roadmap to the next level"):
-    st.markdown("""**1. Combining the best recipes** - done: v3.2 merges the segmentation-aided multitask training (v2's winning recipe) with the independent sigmoid scores + OOD rejection (v3's design) - 89.8% familiar accuracy (v2: 88.4%, v3: 79.8%) while keeping the correct-rejection behavior on unfamiliar films (60% vs v2's 20%).
+    st.markdown("""**1. Combining the best recipes** - done: v3.2 (sigmoid scores + OOD + segmentation head) holds 89.1% accuracy on the clean 644-tile cohort (zero training contact) and passes all four validation tests: per-source accuracy, calibration (ECE 0.033), OOD degradation ladder, and invariance. Honest caveat: on the 500-study radiologist-annotated benchmark the binary boundary measures ~31-45% - the internal score measures agreement with an NLP labeler, not with radiologists; the OOD banner and the uncertainty flag exist because of that gap.
 
 **2. External validation with hospital data** - the hospital proposal is ready; partner samples become the locked external test cohort - the industry-standard evidence of generalization.
 
