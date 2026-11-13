@@ -1,6 +1,7 @@
-streamlit
-tensorflow
-huggingface_hub
-numpy
-pillow
-opencv-python-headless
+# pinned to the versions verified loading and serving the v4.4 model
+streamlit>=1.66.0
+tensorflow>=2.21.0
+huggingface_hub>=1.26.0
+numpy>=2.0
+pillow>=10.0
+opencv-python-headless>=4.12.0
