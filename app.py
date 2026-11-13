@@ -33,30 +33,31 @@ CUSTOM_LOSSES = {"weighted_bce": _weighted_bce, "aux_bce_masked": _aux_bce_maske
 
 
 def _load_model(model_path):
-    # v3.2 onward are trained with custom losses, so custom_objects is mandatory;
-    # the plain retry keeps older/plain-loss repos loadable
+    return tf.keras.models.load_model(model_path, custom_objects=CUSTOM_LOSSES)
+
+
+def _down(fname, token=None):
+    """Download from the repo; the repo is public, so a missing/bad token must
+    never block loading - just call again without one."""
     try:
-        return tf.keras.models.load_model(model_path, custom_objects=CUSTOM_LOSSES)
+        return hf_hub_download(repo_id=REPO_ID, filename=fname, token=token)
     except Exception:
-        return tf.keras.models.load_model(model_path, custom_objects=CUSTOM_LOSSES)
+        return hf_hub_download(repo_id=REPO_ID, filename=fname)
 
 
 def get_model():
     token = st.secrets.get("HF_TOKEN")
-    config_path = hf_hub_download(repo_id=REPO_ID, filename="preprocessing_config.json", token=token)
+    config_path = _down("preprocessing_config.json", token)
     with open(config_path) as f:
         config = json.load(f)
     # the model filename is declared in the config (repos ship best_v32.keras etc.)
     model_file = config.get("hf_model_file", "best_model.keras")
-    try:
-        model_path = hf_hub_download(repo_id=REPO_ID, filename=model_file, token=token)
-    except Exception:
-        model_path = hf_hub_download(repo_id=REPO_ID, filename="best_model.keras", token=token)
+    model_path = _down(model_file, token)
     model = _load_model(model_path)
     # OOD detector artifacts (present on multilabel-v3 and later)
     centroids = None
     try:
-        cent_path = hf_hub_download(repo_id=REPO_ID, filename="ood_centroids.json", token=token)
+        cent_path = _down("ood_centroids.json", token)
         with open(cent_path) as f:
             centroids = json.load(f)
     except Exception:
@@ -72,8 +73,11 @@ def get_model():
 
 try:
     model, feat_model, centroids, config = get_model()
-except Exception:
-    st.error(f"Model could not be loaded from {REPO_ID}. Check that the HF_TOKEN secret is set in the app settings.")
+except Exception as _e:
+    # surface the real exception - guessing between "token" and "TF version"
+    # from a generic banner costs hours
+    st.error(f"Model could not be loaded from {REPO_ID}.")
+    st.code(f"{type(_e).__name__}: {_e}")
     st.stop()
 
 order = config["class_order"]
