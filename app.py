@@ -48,7 +48,7 @@ def _down(fname, token=None):
 def get_model():
     token = st.secrets.get("HF_TOKEN")
     config_path = _down("preprocessing_config.json", token)
-    with open(config_path) as f:
+    with open(config_path, encoding="utf-8-sig") as f:  # tolerate a BOM if a file ever ships one
         config = json.load(f)
     # the model filename is declared in the config (repos ship best_v32.keras etc.)
     model_file = config.get("hf_model_file", "best_model.keras")
@@ -58,7 +58,7 @@ def get_model():
     centroids = None
     try:
         cent_path = _down("ood_centroids.json", token)
-        with open(cent_path) as f:
+        with open(cent_path, encoding="utf-8-sig") as f:
             centroids = json.load(f)
     except Exception:
         centroids = None
