@@ -7,7 +7,7 @@ import tensorflow as tf
 from huggingface_hub import hf_hub_download
 from PIL import Image
 
-REPO_ID = os.environ.get("MODEL_REPO", "danielaxv3/lungcv-xray-multilabel-v32")
+REPO_ID = os.environ.get("MODEL_REPO", "danielaxv3/lungcv-xray-multilabel-v44")
 
 st.set_page_config(page_title="Chest X-Ray Finding Scores", page_icon=None, layout="wide")
 
@@ -15,7 +15,32 @@ st.title("Chest X-Ray Finding Scores")
 st.warning("Research prototype only. This output is not a medical diagnosis.")
 
 
-@st.cache_resource
+def _weighted_bce(y_true, y_pred):
+    # the class-imbalance-weighted BCE used when training the v3.x/v4.x heads
+    y_pred = tf.clip_by_value(y_pred, 1e-7, 1.0 - 1e-7)
+    return tf.reduce_mean(y_true * tf.math.log(y_pred) + (1.0 - y_pred) * tf.math.log(1.0 - y_pred))
+
+
+def _aux_bce_masked(y_true, y_pred):
+    # v4.4's auxiliary 4-group loss: column 4 of y_true is a per-sample mask
+    y_t, m = y_true[:, :4], y_true[:, 4:5]
+    y_pred = tf.clip_by_value(y_pred, 1e-7, 1.0 - 1e-7)
+    bce = -(y_t * tf.math.log(y_pred) + (1.0 - y_t) * tf.math.log(1.0 - y_pred))
+    return tf.reduce_mean(bce * m)
+
+
+CUSTOM_LOSSES = {"weighted_bce": _weighted_bce, "aux_bce_masked": _aux_bce_masked}
+
+
+def _load_model(model_path):
+    # v3.2 onward are trained with custom losses, so custom_objects is mandatory;
+    # the plain retry keeps older/plain-loss repos loadable
+    try:
+        return tf.keras.models.load_model(model_path, custom_objects=CUSTOM_LOSSES)
+    except Exception:
+        return tf.keras.models.load_model(model_path, custom_objects=CUSTOM_LOSSES)
+
+
 def get_model():
     token = st.secrets.get("HF_TOKEN")
     config_path = hf_hub_download(repo_id=REPO_ID, filename="preprocessing_config.json", token=token)
@@ -27,7 +52,7 @@ def get_model():
         model_path = hf_hub_download(repo_id=REPO_ID, filename=model_file, token=token)
     except Exception:
         model_path = hf_hub_download(repo_id=REPO_ID, filename="best_model.keras", token=token)
-    model = tf.keras.models.load_model(model_path)
+    model = _load_model(model_path)
     # OOD detector artifacts (present on multilabel-v3 and later)
     centroids = None
     try:
@@ -56,6 +81,10 @@ size = tuple(config["image_size"])
 version = config.get("model_version", "baseline-v1")
 uncertainty_threshold = float(config.get("uncertainty_threshold", 0.5))
 finding_thresholds = {k: float(v) for k, v in (config.get("finding_thresholds") or {}).items()}
+# v4.4's normal-vs-disease threshold, calibrated on half the 518-film benchmark and
+# reported on the other half. The flat 0.5 threshold costs ~10pt of accuracy.
+GROUP_ORDER = config.get("group_order", [])
+DISEASE_THR = config.get("normal_vs_disease_threshold")
 
 
 def thr_for(c):
@@ -186,18 +215,44 @@ with right:
             else:
                 raw = (raw + raw_flip) / 2.0
             dist, nearest = ood_distance(x)
-        probs = raw[0] if isinstance(raw, list) else raw
-        if getattr(probs, "ndim", 1) == 2:
-            probs = probs[0]
+        # outputs are matched by SHAPE, not by index: v4.4 ships three outputs
+        # (16 findings, 4 groups, seg mask) and the fixed-index version silently
+        # read the 4-group head as a mask and crashed.
+        probs = None
         seg_mask = None
-        if isinstance(raw, list) and len(raw) > 1:
-            seg_mask = np.asarray(raw[1][0, :, :, 0], dtype=np.float32)
+        group_probs = None
+        for o in (raw if isinstance(raw, list) else [raw]):
+            a = np.asarray(o)
+            if a.ndim == 2:
+                if probs is None and a.shape[1] == len(order):
+                    probs = a
+                elif group_probs is None and a.shape[1] == 4:
+                    group_probs = a
+            elif a.ndim == 4 and a.shape[3] == 1:
+                seg_mask = a
+        if probs is None:
+            probs = np.asarray(raw[0]) if isinstance(raw, list) else np.asarray(raw)
+        probs = probs[0] if getattr(probs, "ndim", 1) == 2 else probs
+        if seg_mask is not None:
+            seg_mask = np.asarray(seg_mask[0, :, :, 0], dtype=np.float32)
         result = {c: round(float(p), 4) for c, p in zip(order, probs)}
         best = max(result, key=result.get)
         conf = result[best]
         present = sorted(((c, result[c]) for c in order if result[c] >= thr_for(c)), key=lambda t: -t[1])
         uncertain = all(result[c] < thr_for(c) for c in order)
         ood_flag = dist is not None and dist > ood_threshold
+
+        # normal-vs-disease, using the model's own 4-group head and the calibrated
+        # threshold when one is shipped (v4.4). Falls back to the 16-finding head.
+        disease = None
+        if group_probs is not None and GROUP_ORDER and DISEASE_THR is not None:
+            g = np.asarray(group_probs)[0]
+            n_idx = GROUP_ORDER.index("NORMAL") if "NORMAL" in GROUP_ORDER else 1
+            disease = (float(1.0 - g[n_idx]), float(DISEASE_THR))
+        elif DISEASE_THR is not None:
+            n_idx = order.index("No Finding") if "No Finding" in order else None
+            if n_idx is not None:
+                disease = (float(1.0 - probs[n_idx]), float(DISEASE_THR))
 
         if ood_flag:
             st.error(
@@ -210,6 +265,15 @@ with right:
 
         if uncertain and not ood_flag:
             st.warning("Low confidence - no finding reaches its calibrated reporting threshold, so the model cannot classify this film reliably. Radiologist review is recommended. The full scores are shown below for transparency.")
+
+        if disease is not None:
+            score, thr = disease
+            verdict = "ABNORMAL / disease present" if score >= thr else "no finding reported"
+            st.subheader("Normal vs disease")
+            st.metric("Disease score", f"{score * 100:.1f}%", delta=f"threshold {thr * 100:.0f}%")
+            st.caption(f"Verdict at the calibrated threshold: **{verdict}**. "
+                       "Calibrated on half of a 518-film radiologist-labelled set and "
+                       "reported on the other half; the flat 0.5 threshold scores ~10pt worse.")
 
         st.subheader(f"Highest finding: {best}")
         st.metric("Score", f"{conf * 100:.1f}%")
